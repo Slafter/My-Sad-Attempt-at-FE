@@ -1,0 +1,1839 @@
+//==================================================================================================
+// 
+// Generated Map Script
+// 
+// Name:   My Sad Attempt at FE
+// 
+//==================================================================================================
+include "TriggerLibs/NativeLib"
+
+//--------------------------------------------------------------------------------------------------
+// Library: Item Utility Library
+//--------------------------------------------------------------------------------------------------
+// Function Declarations
+order lib1_gf_OrderUseItemTargetingRelativePoint (abilcmd lp_cmd, unit lp_item, point lp_tgt);
+order lib1_gf_OrderUseItemTargetingPoint (abilcmd lp_cmd, unit lp_item, point lp_tgt);
+order lib1_gf_OrderUseItemTargetingUnit (abilcmd lp_cmd, unit lp_item, unit lp_tgt);
+order lib1_gf_OrderUseItemInstant (abilcmd lp_cmd, unit lp_item);
+unitgroup lib1_gf_UnitsInGroupOfType (unitgroup lp_group, string lp_type);
+string lib1_gf_ItemTypeChargeLink (string lp_itemId);
+fixed lib1_gf_ItemTypeMaxCharges (string lp_itemId);
+void lib1_gf_ItemSetChargesRemaining (unit lp_tgt, fixed lp_charges);
+void lib1_gf_ItemAddCharges (unit lp_item, fixed lp_numCharges);
+void lib1_gf_ItemRemoveCharges (unit lp_item, fixed lp_numCharges);
+int lib1_gf_InventoryCountItemsOfType (unit lp_tgt, string lp_type);
+unitgroup lib1_gf_InventoryGetItemsOfType (unit lp_tgt, string lp_type);
+bool lib1_gf_InventoryHasItemOfType (unit lp_tgt, string lp_type);
+unit lib1_gf_InventoryGetRandomItemOfType (unit lp_tgt, string lp_type);
+fixed lib1_gf_ItemGetChargesUsed (unit lp_tgt);
+fixed lib1_gf_ItemGetChargesRemaining (unit lp_tgt);
+fixed lib1_gf_InventoryTotalChargesOfItemType (unit lp_tgt, string lp_type);
+void lib1_gf_InventoryRemoveItemChargesOfType (unit lp_tgt, string lp_type, fixed lp_numCharges);
+void lib1_gf_InventoryStackItemsOfType (unit lp_tgt, string lp_type);
+
+// Custom Script
+//--------------------------------------------------------------------------------------------------
+// Custom Script: Custom Script
+//--------------------------------------------------------------------------------------------------
+unitgroup UnitsInGroupOfType(unitgroup group, string type)
+{
+    unitgroup matchingUnits = UnitGroupEmpty();
+    int numUnits = UnitGroupCount(group, c_unitCountAll);
+    unit curUnit;
+    int i = 1;
+ 
+    while(i <= numUnits)
+    {
+        curUnit = UnitGroupUnit(group, i);
+        if(UnitGetType(curUnit) == type)
+        {
+            UnitGroupAdd(matchingUnits, curUnit);
+        }
+        i += 1;
+    }
+ 
+    return matchingUnits;
+}
+ 
+unitgroup InventoryGetItemsOfType(unit tgt, string type)
+{
+    return UnitsInGroupOfType(UnitInventoryGroup(tgt), type);
+}
+ 
+int InventoryCountItemsOfType(unit tgt, string type)
+{
+    return UnitGroupCount(InventoryGetItemsOfType(tgt, type), c_unitCountAll);
+}
+ 
+bool InventoryHasItemOfType(unit tgt, string type)
+{
+    return InventoryCountItemsOfType(tgt, type) > 0;
+}
+ 
+unit InventoryGetRandomItemOfType(unit tgt, string type)
+{
+    unitgroup items = InventoryGetItemsOfType(tgt, type);
+ 
+    if(UnitGroupCount(items, c_unitCountAll) <= 0)
+    {
+        return null;
+    }
+ 
+    return UnitGroupUnit(items, 0);
+}
+ 
+string ItemTypeChargeLink(string itemId)
+{
+    string itemLinkId = CatalogFieldValueGet(c_gameCatalogUnit, itemId, "Item", -1);
+    return CatalogFieldValueGet(c_gameCatalogItem, itemLinkId, "EffectCost.Charge.Link", -1);
+}
+ 
+fixed ItemTypeMaxCharges(string itemId)
+{
+    string itemLinkId = CatalogFieldValueGet(c_gameCatalogUnit, itemId, "Item", -1);
+    return StringToFixed(CatalogFieldValueGet(c_gameCatalogItem, itemLinkId, "EffectCost.Charge.CountMax", -1));
+}
+ 
+fixed ItemGetChargesUsed(unit tgt)
+{
+    string chargeLinkName = ItemTypeChargeLink(UnitGetType(tgt));
+    return UnitGetChargeUsed(tgt, chargeLinkName);
+}
+ 
+fixed ItemGetChargesRemaining(unit tgt)
+{
+    string itemId = UnitGetType(tgt);
+    string chargeLinkName = ItemTypeChargeLink(itemId);
+    return ItemTypeMaxCharges(itemId) - UnitGetChargeUsed(tgt, chargeLinkName);
+}
+ 
+void ItemRemoveCharges(unit tgt, fixed amnt)
+{
+    string itemId = UnitGetType(tgt);
+    string chargeLinkName = ItemTypeChargeLink(itemId);
+ 
+    UnitAddChargeUsed(tgt, chargeLinkName, amnt);
+ 
+    if(ItemGetChargesRemaining(tgt) <= 0)
+    {
+        UnitRemove(tgt);
+    }
+}
+ 
+void ItemAddCharges(unit tgt, fixed amnt)
+{
+    string itemId = UnitGetType(tgt);
+    string chargeLinkName = ItemTypeChargeLink(itemId);
+    UnitAddChargeUsed(tgt, chargeLinkName, -amnt);
+}
+ 
+void ItemSetChargesRemaining(unit tgt, fixed charges)
+{
+    string chargeLinkName = ItemTypeChargeLink(UnitGetType(tgt));
+    fixed curCharges = ItemGetChargesRemaining(tgt);
+    if(curCharges != charges)
+    {
+        UnitAddChargeUsed(tgt, chargeLinkName, (curCharges - charges));
+    }
+}
+ 
+fixed InventoryTotalChargesOfItemType(unit tgt, string type)
+{
+    unitgroup items = InventoryGetItemsOfType(tgt, type);
+    fixed chargeCount = 0;
+    int numItems = UnitGroupCount(items, c_unitCountAll);
+    int i = 1;
+ 
+    while(i <= numItems)
+    {
+        chargeCount += ItemGetChargesRemaining(UnitGroupUnit(items, i));
+        i += 1;
+    }
+    return chargeCount;
+}
+ 
+void InventoryRemoveItemChargesOfType(unit tgt, string type, fixed numCharges)
+{
+    fixed chargeCount = InventoryTotalChargesOfItemType(tgt, type) - numCharges;
+    fixed maxCharges = ItemTypeMaxCharges(type);
+    unitgroup items = InventoryGetItemsOfType(tgt, type);
+    int i = UnitGroupCount(items, c_unitCountAlive);
+    unit curUnit;
+ 
+    while(i > 0)
+    {
+        curUnit = UnitGroupUnit(items, i);
+        if(chargeCount > maxCharges)
+        {
+            ItemSetChargesRemaining(curUnit, maxCharges);
+            chargeCount -= maxCharges;
+        }
+        else if(chargeCount > 0)
+        {
+            ItemSetChargesRemaining(curUnit, chargeCount);
+            chargeCount = 0;
+        }
+        else
+        {
+            UnitRemove(curUnit);
+        }
+        i -= 1;
+    }
+}
+ 
+void InventoryStackItemsOfType(unit tgt, string type)
+{
+    InventoryRemoveItemChargesOfType(tgt, type, 0);
+    return;
+}
+ 
+order OrderUseItemTargetingPoint(abilcmd cmd, unit item, point tgt)
+{
+    order ord = OrderTargetingPoint(cmd, tgt);
+    OrderSetTargetItem(ord, item);
+    return ord;
+}
+ 
+order OrderUseItemTargetingRelativePoint(abilcmd cmd, unit item, point tgt)
+{
+    order ord = OrderTargetingRelativePoint(cmd, tgt);
+    OrderSetTargetItem(ord, item);
+    return ord;
+}
+ 
+order OrderUseItemTargetingUnit(abilcmd cmd, unit item, unit tgt)
+{
+    order ord = OrderTargetingUnit(cmd, tgt);
+    OrderSetTargetItem(ord, item);
+    return ord;
+}
+ 
+order OrderUseItemInstant(abilcmd cmd, unit item)
+{
+    return OrderTargetingItem(cmd, item);
+}
+
+void lib1_InitCustomScript () {
+}
+
+// Functions
+order lib1_gf_OrderUseItemTargetingRelativePoint (abilcmd lp_cmd, unit lp_item, point lp_tgt) {
+    // Variable Declarations
+    order lv_ord;
+
+    // Variable Initialization
+    lv_ord = OrderTargetingRelativePoint(lp_cmd, lp_tgt);
+
+    // Implementation
+    OrderSetTargetItem(lv_ord, lp_item);
+    return lv_ord;
+}
+
+order lib1_gf_OrderUseItemTargetingPoint (abilcmd lp_cmd, unit lp_item, point lp_tgt) {
+    // Variable Declarations
+    order lv_ord;
+
+    // Variable Initialization
+    lv_ord = OrderTargetingPoint(lp_cmd, lp_tgt);
+
+    // Implementation
+    OrderSetTargetItem(lv_ord, lp_item);
+    return lv_ord;
+}
+
+order lib1_gf_OrderUseItemTargetingUnit (abilcmd lp_cmd, unit lp_item, unit lp_tgt) {
+    // Variable Declarations
+    order lv_ord;
+
+    // Variable Initialization
+    lv_ord = OrderTargetingUnit(lp_cmd, lp_tgt);
+
+    // Implementation
+    OrderSetTargetItem(lv_ord, lp_item);
+    return lv_ord;
+}
+
+order lib1_gf_OrderUseItemInstant (abilcmd lp_cmd, unit lp_item) {
+    // Implementation
+    return OrderTargetingItem(lp_cmd, lp_item);
+}
+
+unitgroup lib1_gf_UnitsInGroupOfType (unitgroup lp_group, string lp_type) {
+    // Variable Declarations
+    int lv_numUnits;
+    unitgroup lv_matchingUnits;
+    unit lv_curUnit;
+    int lv_i;
+
+    // Variable Initialization
+    lv_numUnits = UnitGroupCount(lp_group, c_unitCountAll);
+    lv_matchingUnits = UnitGroupEmpty();
+    lv_i = 1;
+
+    // Implementation
+    while ((lv_i <= lv_numUnits)) {
+        lv_curUnit = UnitGroupUnit(lp_group, lv_i);
+        if ((UnitGetType(lv_curUnit) == lp_type)) {
+            UnitGroupAdd(lv_matchingUnits, lv_curUnit);
+        }
+        else {
+        }
+        lv_i += 1;
+    }
+    return lv_matchingUnits;
+}
+
+string lib1_gf_ItemTypeChargeLink (string lp_itemId) {
+    // Variable Declarations
+    string lv_itemLinkId;
+
+    // Variable Initialization
+    lv_itemLinkId = CatalogFieldValueGet(c_gameCatalogUnit, lp_itemId, "Item", c_playerAny);
+
+    // Implementation
+    return CatalogFieldValueGet(c_gameCatalogItem, lv_itemLinkId, "EffectCost.Charge.Link", c_playerAny);
+}
+
+fixed lib1_gf_ItemTypeMaxCharges (string lp_itemId) {
+    // Variable Declarations
+    string lv_itemLinkId;
+
+    // Variable Initialization
+    lv_itemLinkId = CatalogFieldValueGet(c_gameCatalogUnit, lp_itemId, "Item", c_playerAny);
+
+    // Implementation
+    return StringToFixed(CatalogFieldValueGet(c_gameCatalogItem, lv_itemLinkId, "EffectCost.Charge.CountMax", c_playerAny));
+}
+
+void lib1_gf_ItemSetChargesRemaining (unit lp_tgt, fixed lp_charges) {
+    // Variable Declarations
+    string lv_chargeLinkName;
+    fixed lv_curCharges;
+
+    // Variable Initialization
+    lv_chargeLinkName = lib1_gf_ItemTypeChargeLink((UnitGetType(lp_tgt)));
+    lv_curCharges = lib1_gf_ItemGetChargesRemaining(lp_tgt);
+
+    // Implementation
+    if ((lv_curCharges != lp_charges)) {
+        UnitAddChargeUsed(lp_tgt, lv_chargeLinkName, (lv_curCharges - lp_charges));
+    }
+    else {
+    }
+}
+
+void lib1_gf_ItemAddCharges (unit lp_item, fixed lp_numCharges) {
+    // Variable Declarations
+    string lv_itemId;
+    string lv_chargeLinkName;
+
+    // Variable Initialization
+    lv_itemId = UnitGetType(lp_item);
+    lv_chargeLinkName = lib1_gf_ItemTypeChargeLink((lv_itemId));
+
+    // Implementation
+    UnitAddChargeUsed(lp_item, lv_chargeLinkName, (0.0 - lp_numCharges));
+}
+
+void lib1_gf_ItemRemoveCharges (unit lp_item, fixed lp_numCharges) {
+    // Variable Declarations
+    string lv_itemId;
+    string lv_chargeLinkName;
+    fixed lv_curCharges;
+
+    // Variable Initialization
+    lv_itemId = UnitGetType(lp_item);
+    lv_chargeLinkName = lib1_gf_ItemTypeChargeLink((lv_itemId));
+    lv_curCharges = lib1_gf_ItemGetChargesRemaining(lp_item);
+
+    // Implementation
+    UnitAddChargeUsed(lp_item, lv_chargeLinkName, (lv_curCharges - lp_numCharges));
+}
+
+int lib1_gf_InventoryCountItemsOfType (unit lp_tgt, string lp_type) {
+    // Implementation
+    return UnitGroupCount(lib1_gf_InventoryGetItemsOfType(lp_tgt, lp_type), c_unitCountAll);
+}
+
+unitgroup lib1_gf_InventoryGetItemsOfType (unit lp_tgt, string lp_type) {
+    // Implementation
+    return lib1_gf_UnitsInGroupOfType(UnitInventoryGroup(lp_tgt), lp_type);
+}
+
+bool lib1_gf_InventoryHasItemOfType (unit lp_tgt, string lp_type) {
+    // Implementation
+    return (lib1_gf_InventoryCountItemsOfType(lp_tgt, lp_type) > 0);
+}
+
+unit lib1_gf_InventoryGetRandomItemOfType (unit lp_tgt, string lp_type) {
+    // Variable Declarations
+    unitgroup lv_items;
+
+    // Variable Initialization
+    lv_items = lib1_gf_InventoryGetItemsOfType(lp_tgt, lp_type);
+
+    // Implementation
+    if ((UnitGroupCount(lv_items, c_unitCountAll) <= 0)) {
+        return null;
+    }
+    else {
+    }
+    return UnitGroupRandomUnit(lv_items, c_unitCountAll);
+}
+
+fixed lib1_gf_ItemGetChargesUsed (unit lp_tgt) {
+    // Variable Declarations
+    string lv_chargeLinkName;
+
+    // Variable Initialization
+    lv_chargeLinkName = lib1_gf_ItemTypeChargeLink((UnitGetType(lp_tgt)));
+
+    // Implementation
+    return UnitGetChargeUsed(lp_tgt, lv_chargeLinkName);
+}
+
+fixed lib1_gf_ItemGetChargesRemaining (unit lp_tgt) {
+    // Variable Declarations
+    string lv_itemId;
+    string lv_chargeLinkName;
+
+    // Variable Initialization
+    lv_itemId = (UnitGetType(lp_tgt));
+    lv_chargeLinkName = lib1_gf_ItemTypeChargeLink((UnitGetType(lp_tgt)));
+
+    // Implementation
+    return (lib1_gf_ItemTypeMaxCharges(lv_itemId) - UnitGetChargeUsed(lp_tgt, lv_chargeLinkName));
+}
+
+fixed lib1_gf_InventoryTotalChargesOfItemType (unit lp_tgt, string lp_type) {
+    // Variable Declarations
+    unitgroup lv_items;
+    fixed lv_chargeCount;
+    int lv_numItems;
+    int lv_i;
+
+    // Variable Initialization
+    lv_items = lib1_gf_InventoryGetItemsOfType(lp_tgt, lp_type);
+    lv_numItems = UnitGroupCount(lv_items, c_unitCountAll);
+    lv_i = 1;
+
+    // Implementation
+    while ((lv_i <= lv_numItems)) {
+        lv_chargeCount += lib1_gf_ItemGetChargesRemaining(UnitGroupUnit(lv_items, lv_i));
+        lv_i += 1;
+    }
+    return lv_chargeCount;
+}
+
+void lib1_gf_InventoryRemoveItemChargesOfType (unit lp_tgt, string lp_type, fixed lp_numCharges) {
+    // Variable Declarations
+    fixed lv_chargeCount;
+    string lv_typeString;
+    fixed lv_maxCharges;
+    unitgroup lv_items;
+    int lv_i;
+    unit lv_curUnit;
+
+    // Variable Initialization
+    lv_chargeCount = lib1_gf_InventoryTotalChargesOfItemType(lp_tgt, lp_type);
+    lv_typeString = (lp_type);
+    lv_maxCharges = lib1_gf_ItemTypeMaxCharges(lv_typeString);
+    lv_items = lib1_gf_InventoryGetItemsOfType(lp_tgt, lp_type);
+    lv_i = UnitGroupCount(lv_items, c_unitCountAll);
+
+    // Implementation
+    lv_chargeCount -= lp_numCharges;
+    while ((lv_i > 0)) {
+        lv_curUnit = UnitGroupUnit(lv_items, lv_i);
+        if ((lv_chargeCount > lv_maxCharges)) {
+            lv_chargeCount -= lv_maxCharges;
+            lib1_gf_ItemSetChargesRemaining(lv_curUnit, lv_maxCharges);
+        }
+        else if ((lv_chargeCount > 0.0)) {
+            lib1_gf_ItemSetChargesRemaining(lv_curUnit, lv_chargeCount);
+            lv_chargeCount = 0.0;
+        }
+        else if ((StringExternal("Param/Value/lib_1_CF081194") != null)) {
+            UnitRemove(lv_curUnit);
+        }
+        lv_i -= 1;
+    }
+}
+
+void lib1_gf_InventoryStackItemsOfType (unit lp_tgt, string lp_type) {
+    // Implementation
+    lib1_gf_InventoryRemoveItemChargesOfType(lp_tgt, lp_type, 0.0);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Library Initialization
+//--------------------------------------------------------------------------------------------------
+bool lib1_InitLib_completed = false;
+
+void lib1_InitLib () {
+    if (lib1_InitLib_completed) {
+        return;
+    }
+
+    lib1_InitCustomScript();
+
+    lib1_InitLib_completed = true;
+}
+
+//--------------------------------------------------------------------------------------------------
+// Library Initialization
+//--------------------------------------------------------------------------------------------------
+void InitLibs () {
+    libNtve_InitLib();
+    lib1_InitLib();
+}
+
+//--------------------------------------------------------------------------------------------------
+// Constants
+//--------------------------------------------------------------------------------------------------
+const int gv_batSeqA = 0;
+const int gv_batSeqAA = 1;
+const int gv_batSeqAD = 2;
+const int gv_batSeqADA = 3;
+const int gv_batSeqADD = 4;
+const int gv_swordClass = 0;
+const int gv_lanceClass = 1;
+const int gv_axeClass = 2;
+const int gv_bowClass = 3;
+const int gv_animaClass = 4;
+const int gv_lightClass = 5;
+const int gv_darkClass = 6;
+const int gv_neutralClass = 7;
+const int gv_meleeStyle = 0;
+const int gv_meleeRangeHybrid = 1;
+const int gv_rangedStyle = 2;
+const int gv_longRangeStyle = 3;
+const int gv_superLongRangeStyle = 4;
+const int gv_noWeaponStyle = 5;
+const int gv_meleeStage = 0;
+const int gv_rangedStage = 1;
+const int gv_longStage = 2;
+const int gv_superLongStage = 3;
+const fixed gv_meleeRange = 2.25;
+const fixed gv_standardRange = 6.25;
+const fixed gv_longRange = 8.35;
+const fixed gv_superLongRange = 25.5;
+const int gv_doubleAttackSpeed = 5;
+const int gv_trianglePenalty = 0;
+const int gv_triangleNeutral = 1;
+const int gv_triangleBonus = 2;
+const int gv_hitRateperSkill = 5;
+
+//--------------------------------------------------------------------------------------------------
+// Global Variables
+//--------------------------------------------------------------------------------------------------
+int gv_endTurnButton;
+timer gv_turnTimerRed;
+timer gv_turnTimerBlue;
+bool gv_redsTurn;
+int gv_i;
+
+void InitGlobals () {
+    gv_endTurnButton = c_invalidDialogControlId;
+    gv_turnTimerRed = TimerCreate();
+    gv_turnTimerBlue = TimerCreate();
+    gv_redsTurn = true;
+}
+
+//--------------------------------------------------------------------------------------------------
+// Global Function Declarations
+//--------------------------------------------------------------------------------------------------
+void gf_BeginBattle (int lp_battleSequence, unit lp_attacker, unit lp_defender);
+void gf_AttackerAttacks (unit lp_attacker, unit lp_defender, point lp_attackerLoc);
+void gf_DefenderAttacks (unit lp_attacker, unit lp_defender, point lp_defenderLoc);
+void gf_AttackerMisses (unit lp_attacker, unit lp_defender, point lp_attackerLoc);
+void gf_DefenderMisses (unit lp_attacker, unit lp_defender, point lp_defenderLoc);
+void gf_CalcResistance (unit lp_attacker, unit lp_defender);
+void gf_PauseNonCombatUnits (unit lp_combatUnit1, unit lp_combatUnit2);
+void gf_UnpauseAllunits ();
+void gf_MoveUnitstoStage (int lp_stageType, unit lp_attacker, unit lp_defender);
+fixed gf_GetDistanceBetweenUnits (unit lp_unit1, unit lp_unit2);
+int gf_GetStageType (unit lp_firstUnit, unit lp_secondUnit);
+int gf_GetWeaponStyle (unit lp_unit);
+int gf_GetWeaponClass (unit lp_unit);
+bool gf_CanDefenderCounter (int lp_stageType, int lp_weaponStyle);
+int gf_GetBattleSequence (bool lp_canDefenderCounter, int lp_attackerSpeed, int lp_defenderSpeed);
+int gf_CalcWeaponTriangle (unit lp_unit1, unit lp_unit2);
+int gf_CalcUnitHitRate (unit lp_attacker, unit lp_defender);
+int gf_GetWeaponHitRate (unit lp_unit);
+int gf_GetUnitCritRate (unit lp_unit);
+
+//--------------------------------------------------------------------------------------------------
+// Trigger Variables
+//--------------------------------------------------------------------------------------------------
+trigger gt_MeleeInitialization;
+trigger gt_EndTurnRed;
+trigger gt_EndTurnBlue;
+trigger gt_StarterWeapons;
+trigger gt_EnergyRefresh;
+trigger gt_BattlePrep;
+trigger gt_ReplaceItems;
+trigger gt_EnergyWorkaround;
+trigger gt_AttackerHits;
+trigger gt_AttackerMisses;
+trigger gt_AttackerCrits;
+
+//--------------------------------------------------------------------------------------------------
+// Global Functions
+//--------------------------------------------------------------------------------------------------
+void gf_BeginBattle (int lp_battleSequence, unit lp_attacker, unit lp_defender) {
+    // Variable Declarations
+    int lv_attackerHitRate;
+    int lv_attackerCritRate;
+    int lv_attackerWeaponTriangle;
+    int lv_defenderHitRate;
+    int lv_defenderCritRate;
+    int lv_defenderWeaponTriangle;
+    point lv_attackerLoc;
+    point lv_defenderLoc;
+
+    // Variable Initialization
+    lv_attackerLoc = UnitGetPosition(lp_attacker);
+    lv_defenderLoc = UnitGetPosition(lp_defender);
+
+    // Implementation
+    lv_attackerWeaponTriangle = gf_CalcWeaponTriangle(lp_attacker, lp_defender);
+    if ((lv_attackerWeaponTriangle == gv_trianglePenalty)) {
+        UnitBehaviorAdd(lp_attacker, "WeaponTriangleNegative", lp_attacker, 1);
+        UnitBehaviorAdd(lp_defender, "WeaponTrianglePositive", lp_defender, 1);
+    }
+    else {
+        if ((lv_attackerWeaponTriangle == gv_triangleBonus)) {
+            UnitBehaviorAdd(lp_attacker, "WeaponTrianglePositive", lp_attacker, 1);
+            UnitBehaviorAdd(lp_defender, "WeaponTriangleNegative", lp_defender, 1);
+        }
+        else {
+        }
+    }
+    lv_attackerHitRate = gf_CalcUnitHitRate(lp_attacker, lp_defender);
+    lv_attackerCritRate = gf_GetUnitCritRate(lp_attacker);
+    lv_defenderHitRate = gf_CalcUnitHitRate(lp_defender, lp_attacker);
+    lv_defenderCritRate = gf_GetUnitCritRate(lp_defender);
+    gf_CalcResistance(lp_attacker, lp_defender);
+    UnitBehaviorAdd(lp_defender, "MoveToggle", lp_defender, 1);
+    Wait(1.5, c_timeGame);
+    if ((lv_attackerHitRate >= RandomInt(1, 100))) {
+        if ((lv_attackerCritRate >= RandomInt(1, 100))) {
+            TriggerEnable(gt_AttackerCrits, true);
+        }
+        else {
+        }
+        gf_AttackerAttacks(lp_attacker, lp_defender, lv_attackerLoc);
+    }
+    else {
+        gf_AttackerMisses(lp_attacker, lp_defender, lv_attackerLoc);
+    }
+    if (((UnitIsAlive(lp_defender) == true) && (lp_battleSequence == gv_batSeqAA))) {
+        if ((lv_attackerHitRate >= RandomInt(1, 100))) {
+            if ((lv_attackerCritRate >= RandomInt(1, 100))) {
+                TriggerEnable(gt_AttackerCrits, true);
+            }
+            else {
+            }
+            gf_AttackerAttacks(lp_attacker, lp_defender, lv_attackerLoc);
+        }
+        else {
+            gf_AttackerMisses(lp_attacker, lp_defender, lv_attackerLoc);
+        }
+    }
+    else {
+        if (((UnitIsAlive(lp_defender) == true) && (lp_battleSequence == gv_batSeqAD))) {
+            if ((lv_defenderHitRate >= RandomInt(1, 100))) {
+                if ((lv_defenderCritRate >= RandomInt(1, 100))) {
+                    TriggerEnable(gt_AttackerCrits, true);
+                }
+                else {
+                }
+                gf_DefenderAttacks(lp_attacker, lp_defender, lv_defenderLoc);
+            }
+            else {
+                gf_DefenderMisses(lp_attacker, lp_defender, lv_defenderLoc);
+            }
+        }
+        else {
+            if (((UnitIsAlive(lp_defender) == true) && (lp_battleSequence == gv_batSeqADA))) {
+                if ((lv_defenderHitRate >= RandomInt(1, 100))) {
+                    if ((lv_defenderCritRate >= RandomInt(1, 100))) {
+                        TriggerEnable(gt_AttackerCrits, true);
+                    }
+                    else {
+                    }
+                    gf_DefenderAttacks(lp_attacker, lp_defender, lv_defenderLoc);
+                    if ((UnitIsAlive(lp_attacker) == true)) {
+                        if ((lv_attackerHitRate >= RandomInt(1, 100))) {
+                            if ((lv_attackerCritRate >= RandomInt(1, 100))) {
+                                TriggerEnable(gt_AttackerCrits, true);
+                            }
+                            else {
+                            }
+                            gf_AttackerAttacks(lp_attacker, lp_defender, lv_attackerLoc);
+                        }
+                        else {
+                            gf_AttackerMisses(lp_attacker, lp_defender, lv_attackerLoc);
+                        }
+                    }
+                    else {
+                    }
+                }
+                else {
+                    gf_DefenderMisses(lp_attacker, lp_defender, lv_defenderLoc);
+                    if ((UnitIsAlive(lp_attacker) == true)) {
+                        if ((lv_attackerHitRate >= RandomInt(1, 100))) {
+                            if ((lv_attackerCritRate >= RandomInt(1, 100))) {
+                                TriggerEnable(gt_AttackerCrits, true);
+                            }
+                            else {
+                            }
+                            gf_AttackerAttacks(lp_attacker, lp_defender, lv_attackerLoc);
+                        }
+                        else {
+                            gf_AttackerMisses(lp_attacker, lp_defender, lv_attackerLoc);
+                        }
+                    }
+                    else {
+                    }
+                }
+            }
+            else {
+                if (((UnitIsAlive(lp_defender) == true) && (lp_battleSequence == gv_batSeqADD))) {
+                    if ((lv_defenderHitRate >= RandomInt(1, 100))) {
+                        if ((lv_defenderCritRate >= RandomInt(1, 100))) {
+                            TriggerEnable(gt_AttackerCrits, true);
+                        }
+                        else {
+                        }
+                        gf_DefenderAttacks(lp_attacker, lp_defender, lv_defenderLoc);
+                        if ((UnitIsAlive(lp_attacker) == true)) {
+                            if ((lv_defenderHitRate >= RandomInt(1, 100))) {
+                                if ((lv_defenderCritRate >= RandomInt(1, 100))) {
+                                    TriggerEnable(gt_AttackerCrits, true);
+                                }
+                                else {
+                                }
+                                gf_DefenderAttacks(lp_attacker, lp_defender, lv_defenderLoc);
+                            }
+                            else {
+                                gf_DefenderMisses(lp_attacker, lp_defender, lv_defenderLoc);
+                            }
+                        }
+                        else {
+                        }
+                    }
+                    else {
+                        gf_DefenderMisses(lp_attacker, lp_defender, lv_defenderLoc);
+                        if ((UnitIsAlive(lp_attacker) == true)) {
+                            if ((lv_defenderHitRate >= RandomInt(1, 100))) {
+                                if ((lv_defenderCritRate >= RandomInt(1, 100))) {
+                                    TriggerEnable(gt_AttackerCrits, true);
+                                }
+                                else {
+                                }
+                                gf_DefenderAttacks(lp_attacker, lp_defender, lv_defenderLoc);
+                            }
+                            else {
+                                gf_DefenderMisses(lp_attacker, lp_defender, lv_defenderLoc);
+                            }
+                        }
+                        else {
+                        }
+                    }
+                }
+                else {
+                }
+            }
+        }
+    }
+    Wait(2.0, c_timeGame);
+    UnitBehaviorRemove(lp_attacker, "WeaponTriangleNegative", 1);
+    UnitBehaviorRemove(lp_attacker, "WeaponTrianglePositive", 1);
+    UnitBehaviorRemove(lp_defender, "WeaponTriangleNegative", 1);
+    UnitBehaviorRemove(lp_defender, "WeaponTrianglePositive", 1);
+    UnitBehaviorRemove(lp_attacker, "ResistanceStacks", 35);
+    UnitBehaviorRemove(lp_defender, "ResistanceStacks", 35);
+}
+
+void gf_AttackerAttacks (unit lp_attacker, unit lp_defender, point lp_attackerLoc) {
+    // Implementation
+    TriggerEnable(gt_AttackerHits, true);
+    UnitBehaviorRemove(lp_attacker, "MoveToggle", 5);
+    UnitBehaviorRemove(lp_attacker, "AttackToggle", 5);
+    UnitIssueOrder(lp_attacker, OrderTargetingUnit(AbilityCommand("attack", 0), lp_defender), c_orderQueueReplace);
+    TriggerWaitForTrigger(gt_AttackerHits, true);
+    UnitBehaviorAdd(lp_attacker, "AttackToggle", lp_attacker, 1);
+    TriggerEnable(gt_AttackerHits, false);
+    TriggerEnable(gt_AttackerCrits, false);
+    Wait(0.2, c_timeGame);
+    UnitIssueOrder(lp_attacker, OrderTargetingPoint(AbilityCommand("move", 0), lp_attackerLoc), c_orderQueueReplace);
+    Wait(3.0, c_timeGame);
+    libNtve_gf_MakeUnitFacePoint(lp_attacker, UnitGetPosition(lp_defender), 0.2);
+    Wait(0.3, c_timeGame);
+    UnitBehaviorAdd(lp_attacker, "MoveToggle", lp_attacker, 1);
+}
+
+void gf_DefenderAttacks (unit lp_attacker, unit lp_defender, point lp_defenderLoc) {
+    // Implementation
+    TriggerEnable(gt_AttackerHits, true);
+    UnitBehaviorRemove(lp_defender, "MoveToggle", 5);
+    UnitBehaviorRemove(lp_defender, "AttackToggle", 5);
+    UnitIssueOrder(lp_defender, OrderTargetingUnit(AbilityCommand("attack", 0), lp_attacker), c_orderQueueReplace);
+    TriggerWaitForTrigger(gt_AttackerHits, true);
+    UnitBehaviorAdd(lp_defender, "AttackToggle", lp_defender, 1);
+    TriggerEnable(gt_AttackerHits, false);
+    TriggerEnable(gt_AttackerCrits, false);
+    Wait(0.2, c_timeGame);
+    UnitIssueOrder(lp_defender, OrderTargetingPoint(AbilityCommand("move", 0), lp_defenderLoc), c_orderQueueReplace);
+    Wait(3.0, c_timeGame);
+    libNtve_gf_MakeUnitFacePoint(lp_defender, UnitGetPosition(lp_attacker), 0.2);
+    Wait(0.3, c_timeGame);
+    UnitBehaviorAdd(lp_defender, "MoveToggle", lp_defender, 1);
+}
+
+void gf_AttackerMisses (unit lp_attacker, unit lp_defender, point lp_attackerLoc) {
+    // Implementation
+    libNtve_gf_ChangeUnitDamage(lp_attacker, 1, 1);
+    TriggerEnable(gt_AttackerHits, true);
+    TriggerEnable(gt_AttackerMisses, true);
+    UnitBehaviorRemove(lp_attacker, "MoveToggle", 5);
+    UnitBehaviorRemove(lp_attacker, "AttackToggle", 5);
+    UnitIssueOrder(lp_attacker, OrderTargetingUnit(AbilityCommand("attack", 0), lp_defender), c_orderQueueReplace);
+    TriggerWaitForTrigger(gt_AttackerHits, true);
+    UnitBehaviorAdd(lp_attacker, "AttackToggle", lp_attacker, 1);
+    TriggerEnable(gt_AttackerHits, false);
+    Wait(0.2, c_timeGame);
+    UnitIssueOrder(lp_attacker, OrderTargetingPoint(AbilityCommand("move", 0), lp_attackerLoc), c_orderQueueReplace);
+    Wait(3.0, c_timeGame);
+    libNtve_gf_MakeUnitFacePoint(lp_attacker, UnitGetPosition(lp_defender), 0.2);
+    Wait(0.3, c_timeGame);
+    UnitBehaviorAdd(lp_attacker, "MoveToggle", lp_attacker, 1);
+    libNtve_gf_ChangeUnitDamage(lp_attacker, 1, 0);
+}
+
+void gf_DefenderMisses (unit lp_attacker, unit lp_defender, point lp_defenderLoc) {
+    // Implementation
+    libNtve_gf_ChangeUnitDamage(lp_defender, 1, 1);
+    TriggerEnable(gt_AttackerHits, true);
+    TriggerEnable(gt_AttackerMisses, true);
+    UnitBehaviorRemove(lp_defender, "MoveToggle", 5);
+    UnitBehaviorRemove(lp_defender, "AttackToggle", 5);
+    UnitIssueOrder(lp_defender, OrderTargetingUnit(AbilityCommand("attack", 0), lp_attacker), c_orderQueueReplace);
+    TriggerWaitForTrigger(gt_AttackerHits, true);
+    UnitBehaviorAdd(lp_defender, "AttackToggle", lp_defender, 1);
+    TriggerEnable(gt_AttackerHits, false);
+    Wait(0.2, c_timeGame);
+    UnitIssueOrder(lp_defender, OrderTargetingPoint(AbilityCommand("move", 0), lp_defenderLoc), c_orderQueueReplace);
+    Wait(3.0, c_timeGame);
+    libNtve_gf_MakeUnitFacePoint(lp_defender, UnitGetPosition(lp_attacker), 0.2);
+    Wait(0.3, c_timeGame);
+    UnitBehaviorAdd(lp_defender, "MoveToggle", lp_defender, 1);
+    libNtve_gf_ChangeUnitDamage(lp_defender, 1, 0);
+}
+
+void gf_CalcResistance (unit lp_attacker, unit lp_defender) {
+    // Implementation
+    if ((UnitHasBehavior(lp_attacker, "Luna") == false)) {
+        UnitBehaviorAdd(lp_defender, "ResistanceStacks", lp_defender, UnitBehaviorCount(lp_defender, "Resistance"));
+    }
+    else {
+    }
+    if ((UnitHasBehavior(lp_defender, "Luna") == false)) {
+        UnitBehaviorAdd(lp_attacker, "ResistanceStacks", lp_attacker, UnitBehaviorCount(lp_attacker, "Resistance"));
+    }
+    else {
+    }
+}
+
+void gf_PauseNonCombatUnits (unit lp_combatUnit1, unit lp_combatUnit2) {
+    // Implementation
+    UnitGroupLoopBegin(UnitGroup(null, c_playerAny, RegionEntireMap(), UnitFilter(0, 0, (1 << c_targetFilterMissile), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        if (((lp_combatUnit1 != UnitGroupLoopCurrent()) && (lp_combatUnit2 != UnitGroupLoopCurrent()))) {
+            libNtve_gf_PauseUnit(UnitGroupLoopCurrent(), true);
+        }
+        else {
+        }
+    }
+    UnitGroupLoopEnd();
+}
+
+void gf_UnpauseAllunits () {
+    // Implementation
+    UnitGroupLoopBegin(UnitGroup(null, c_playerAny, RegionEntireMap(), UnitFilter(0, 0, (1 << c_targetFilterMissile), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        if (true) {
+            libNtve_gf_PauseUnit(UnitGroupLoopCurrent(), false);
+        }
+        else {
+        }
+    }
+    UnitGroupLoopEnd();
+}
+
+void gf_MoveUnitstoStage (int lp_stageType, unit lp_attacker, unit lp_defender) {
+    // Implementation
+    if ((lp_stageType == gv_meleeStage)) {
+        UnitSetPosition(lp_attacker, RegionGetCenter(RegionFromId(1)), false);
+        UnitSetPosition(lp_defender, RegionGetCenter(RegionFromId(2)), false);
+    }
+    else {
+        if ((lp_stageType == gv_rangedStage)) {
+            UnitSetPosition(lp_attacker, RegionGetCenter(RegionFromId(3)), false);
+            UnitSetPosition(lp_defender, RegionGetCenter(RegionFromId(4)), false);
+        }
+        else {
+            if ((lp_stageType == gv_longStage)) {
+                UnitSetPosition(lp_attacker, RegionGetCenter(RegionFromId(5)), false);
+                UnitSetPosition(lp_defender, RegionGetCenter(RegionFromId(6)), false);
+            }
+            else {
+                if ((lp_stageType == gv_superLongStage)) {
+                    UnitSetPosition(lp_attacker, RegionGetCenter(RegionFromId(7)), false);
+                    UnitSetPosition(lp_defender, RegionGetCenter(RegionFromId(8)), false);
+                }
+                else {
+                }
+            }
+        }
+    }
+    libNtve_gf_MakeUnitFacePoint(lp_attacker, UnitGetPosition(lp_defender), 0.0);
+    libNtve_gf_MakeUnitFacePoint(lp_defender, UnitGetPosition(lp_attacker), 0.0);
+}
+
+fixed gf_GetDistanceBetweenUnits (unit lp_unit1, unit lp_unit2) {
+    // Implementation
+    return DistanceBetweenPoints(UnitGetPosition(lp_unit1), UnitGetPosition(lp_unit2));
+}
+
+int gf_GetStageType (unit lp_firstUnit, unit lp_secondUnit) {
+    // Variable Declarations
+    fixed lv_distanceBetweenUnits;
+
+    // Variable Initialization
+
+    // Implementation
+    lv_distanceBetweenUnits = gf_GetDistanceBetweenUnits(lp_firstUnit, lp_secondUnit);
+    TextTagCreate(FixedToText(lv_distanceBetweenUnits, 2), 24, UnitGetPosition(lp_firstUnit), 1.0, true, false, PlayerGroupAll());
+    if ((lv_distanceBetweenUnits <= gv_meleeRange)) {
+        return gv_meleeStage;
+    }
+    else {
+        if (((lv_distanceBetweenUnits > gv_meleeRange) && (lv_distanceBetweenUnits <= gv_standardRange))) {
+            return gv_rangedStage;
+        }
+        else {
+            if (((lv_distanceBetweenUnits > gv_standardRange) && (lv_distanceBetweenUnits <= gv_longRange))) {
+                return gv_longStage;
+            }
+            else {
+                return gv_superLongStage;
+            }
+        }
+    }
+}
+
+int gf_GetWeaponStyle (unit lp_unit) {
+    // Implementation
+    if (((UnitHasBehavior(lp_unit, "ArmorSlayer") == true) || (UnitHasBehavior(lp_unit, "Axereaver") == true) || (UnitHasBehavior(lp_unit, "BattleAxe") == true) || (UnitHasBehavior(lp_unit, "BraveAxe") == true) || (UnitHasBehavior(lp_unit, "BraveLance") == true) || (UnitHasBehavior(lp_unit, "BraveSword") == true) || (UnitHasBehavior(lp_unit, "DragonAxe") == true) || (UnitHasBehavior(lp_unit, "DragonSpear") == true) || (UnitHasBehavior(lp_unit, "Halberd") == true) || (UnitHasBehavior(lp_unit, "Hammer") == true) || (UnitHasBehavior(lp_unit, "HeavySpear") == true) || (UnitHasBehavior(lp_unit, "HorseSlayer") == true) || (UnitHasBehavior(lp_unit, "IronAxe") == true) || (UnitHasBehavior(lp_unit, "IronBlade") == true) || (UnitHasBehavior(lp_unit, "IronLance") == true) || (UnitHasBehavior(lp_unit, "IronSword") == true) || (UnitHasBehavior(lp_unit, "KillerAxe") == true) || (UnitHasBehavior(lp_unit, "KillerLance") == true) || (UnitHasBehavior(lp_unit, "KillingEdge") == true) || (UnitHasBehavior(lp_unit, "Lancereaver") == true) || (UnitHasBehavior(lp_unit, "SilverAxe") == true) || (UnitHasBehavior(lp_unit, "SilverBlade") == true) || (UnitHasBehavior(lp_unit, "SilverLance") == true) || (UnitHasBehavior(lp_unit, "SilverSword") == true) || (UnitHasBehavior(lp_unit, "SlimLance") == true) || (UnitHasBehavior(lp_unit, "SlimSword") == true) || (UnitHasBehavior(lp_unit, "SteelAxe") == true) || (UnitHasBehavior(lp_unit, "SteelBlade") == true) || (UnitHasBehavior(lp_unit, "SteelLance") == true) || (UnitHasBehavior(lp_unit, "SteelSword") == true) || (UnitHasBehavior(lp_unit, "Tomahawk2") == true) || (UnitHasBehavior(lp_unit, "WyrmSlayer") == true) || (UnitHasBehavior(lp_unit, "Zanbato") == true))) {
+        return gv_meleeStyle;
+    }
+    else {
+        if (((UnitHasBehavior(lp_unit, "Aura") == true) || (UnitHasBehavior(lp_unit, "Divine") == true) || (UnitHasBehavior(lp_unit, "Elfire") == true) || (UnitHasBehavior(lp_unit, "Fenrir") == true) || (UnitHasBehavior(lp_unit, "Fimbulvetr") == true) || (UnitHasBehavior(lp_unit, "Fire") == true) || (UnitHasBehavior(lp_unit, "Flux") == true) || (UnitHasBehavior(lp_unit, "HandAxe") == true) || (UnitHasBehavior(lp_unit, "Javelin") == true) || (UnitHasBehavior(lp_unit, "LightBrand") == true) || (UnitHasBehavior(lp_unit, "Lightning") == true) || (UnitHasBehavior(lp_unit, "Luna") == true) || (UnitHasBehavior(lp_unit, "Nosferatu") == true) || (UnitHasBehavior(lp_unit, "RuneSword") == true) || (UnitHasBehavior(lp_unit, "Shine") == true) || (UnitHasBehavior(lp_unit, "ShortSpear") == true) || (UnitHasBehavior(lp_unit, "Spear") == true) || (UnitHasBehavior(lp_unit, "Thunder") == true) || (UnitHasBehavior(lp_unit, "Tomahawk") == true) || (UnitHasBehavior(lp_unit, "WindSword") == true))) {
+            return gv_meleeRangeHybrid;
+        }
+        else {
+            if (((UnitHasBehavior(lp_unit, "BraveBow") == true) || (UnitHasBehavior(lp_unit, "IronBow") == true) || (UnitHasBehavior(lp_unit, "KillerBow") == true) || (UnitHasBehavior(lp_unit, "ShortBow") == true) || (UnitHasBehavior(lp_unit, "SilverBow") == true) || (UnitHasBehavior(lp_unit, "SteelBow") == true))) {
+                return gv_rangedStyle;
+            }
+            else {
+                if (((UnitHasBehavior(lp_unit, "LongBow") == true))) {
+                    return gv_longRangeStyle;
+                }
+                else {
+                    if (((UnitHasBehavior(lp_unit, "Bolting") == true) || (UnitHasBehavior(lp_unit, "Eclipse") == true) || (UnitHasBehavior(lp_unit, "Purge") == true))) {
+                        return gv_superLongRangeStyle;
+                    }
+                    else {
+                        return gv_noWeaponStyle;
+                    }
+                }
+            }
+        }
+    }
+}
+
+int gf_GetWeaponClass (unit lp_unit) {
+    // Implementation
+    if (((UnitHasBehavior(lp_unit, "ArmorSlayer") == true) || (UnitHasBehavior(lp_unit, "BraveSword") == true) || (UnitHasBehavior(lp_unit, "IronBlade") == true) || (UnitHasBehavior(lp_unit, "IronSword") == true) || (UnitHasBehavior(lp_unit, "KillingEdge") == true) || (UnitHasBehavior(lp_unit, "Lancereaver") == true) || (UnitHasBehavior(lp_unit, "SilverBlade") == true) || (UnitHasBehavior(lp_unit, "SilverSword") == true) || (UnitHasBehavior(lp_unit, "SlimSword") == true) || (UnitHasBehavior(lp_unit, "SteelBlade") == true) || (UnitHasBehavior(lp_unit, "SteelSword") == true) || (UnitHasBehavior(lp_unit, "WyrmSlayer") == true) || (UnitHasBehavior(lp_unit, "Zanbato") == true))) {
+        return gv_swordClass;
+    }
+    else {
+        if (((UnitHasBehavior(lp_unit, "Axereaver") == true) || (UnitHasBehavior(lp_unit, "BraveLance") == true) || (UnitHasBehavior(lp_unit, "DragonSpear") == true) || (UnitHasBehavior(lp_unit, "HeavySpear") == true) || (UnitHasBehavior(lp_unit, "HorseSlayer") == true) || (UnitHasBehavior(lp_unit, "IronLance") == true) || (UnitHasBehavior(lp_unit, "Javelin") == true) || (UnitHasBehavior(lp_unit, "KillerLance") == true) || (UnitHasBehavior(lp_unit, "ShortSpear") == true) || (UnitHasBehavior(lp_unit, "SilverLance") == true) || (UnitHasBehavior(lp_unit, "SlimLance") == true) || (UnitHasBehavior(lp_unit, "Spear") == true) || (UnitHasBehavior(lp_unit, "SteelLance") == true))) {
+            return gv_lanceClass;
+        }
+        else {
+            if (((UnitHasBehavior(lp_unit, "BattleAxe") == true) || (UnitHasBehavior(lp_unit, "BraveAxe") == true) || (UnitHasBehavior(lp_unit, "DragonAxe") == true) || (UnitHasBehavior(lp_unit, "Halberd") == true) || (UnitHasBehavior(lp_unit, "Hammer") == true) || (UnitHasBehavior(lp_unit, "HandAxe") == true) || (UnitHasBehavior(lp_unit, "IronAxe") == true) || (UnitHasBehavior(lp_unit, "KillerAxe") == true) || (UnitHasBehavior(lp_unit, "SilverAxe") == true) || (UnitHasBehavior(lp_unit, "SteelAxe") == true) || (UnitHasBehavior(lp_unit, "Tomahawk2") == true) || (UnitHasBehavior(lp_unit, "Tomahawk") == true))) {
+                return gv_axeClass;
+            }
+            else {
+                if (((UnitHasBehavior(lp_unit, "Bolting") == true) || (UnitHasBehavior(lp_unit, "Elfire") == true) || (UnitHasBehavior(lp_unit, "Fimbulvetr") == true) || (UnitHasBehavior(lp_unit, "Fire") == true) || (UnitHasBehavior(lp_unit, "Thunder") == true) || (UnitHasBehavior(lp_unit, "WindSword") == true))) {
+                    return gv_animaClass;
+                }
+                else {
+                    if (((UnitHasBehavior(lp_unit, "Aura") == true) || (UnitHasBehavior(lp_unit, "Divine") == true) || (UnitHasBehavior(lp_unit, "LightBrand") == true) || (UnitHasBehavior(lp_unit, "Lightning") == true) || (UnitHasBehavior(lp_unit, "Purge") == true) || (UnitHasBehavior(lp_unit, "Shine") == true))) {
+                        return gv_lightClass;
+                    }
+                    else {
+                        if (((UnitHasBehavior(lp_unit, "Eclipse") == true) || (UnitHasBehavior(lp_unit, "Fenrir") == true) || (UnitHasBehavior(lp_unit, "Flux") == true) || (UnitHasBehavior(lp_unit, "Luna") == true) || (UnitHasBehavior(lp_unit, "Nosferatu") == true) || (UnitHasBehavior(lp_unit, "RuneSword") == true))) {
+                            return gv_darkClass;
+                        }
+                        else {
+                            return gv_neutralClass;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool gf_CanDefenderCounter (int lp_stageType, int lp_weaponStyle) {
+    // Implementation
+    if ((lp_stageType == gv_meleeStage)) {
+        if (((lp_weaponStyle == gv_meleeStyle) || (lp_weaponStyle == gv_meleeRangeHybrid))) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+    else {
+        if ((lp_stageType == gv_rangedStage)) {
+            if (((lp_weaponStyle == gv_meleeRangeHybrid) || (lp_weaponStyle == gv_rangedStyle) || (lp_weaponStyle == gv_longRangeStyle))) {
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+        else {
+            if ((lp_stageType == gv_longStage)) {
+                if (((lp_weaponStyle == gv_longRangeStyle) || (lp_weaponStyle == gv_superLongRangeStyle))) {
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            }
+            else {
+                if ((lp_stageType == gv_superLongStage)) {
+                    if (((lp_weaponStyle == gv_superLongRangeStyle))) {
+                        return true;
+                    }
+                    else {
+                        return false;
+                    }
+                }
+                else {
+                    return false;
+                }
+            }
+        }
+    }
+}
+
+int gf_GetBattleSequence (bool lp_canDefenderCounter, int lp_attackerSpeed, int lp_defenderSpeed) {
+    // Implementation
+    if ((lp_canDefenderCounter == false)) {
+        if ((lp_attackerSpeed < (lp_defenderSpeed + gv_doubleAttackSpeed))) {
+            return gv_batSeqA;
+        }
+        else {
+            return gv_batSeqAA;
+        }
+    }
+    else {
+        if ((lp_canDefenderCounter == true)) {
+            if (((lp_attackerSpeed < (lp_defenderSpeed + gv_doubleAttackSpeed)) && (lp_defenderSpeed < (lp_attackerSpeed + gv_doubleAttackSpeed)))) {
+                return gv_batSeqAD;
+            }
+            else {
+                if ((lp_attackerSpeed >= (lp_defenderSpeed + gv_doubleAttackSpeed))) {
+                    return gv_batSeqADA;
+                }
+                else {
+                    return gv_batSeqADD;
+                }
+            }
+        }
+        else {
+            return gv_batSeqA;
+        }
+    }
+}
+
+int gf_CalcWeaponTriangle (unit lp_unit1, unit lp_unit2) {
+    // Variable Declarations
+    int lv_attackerWepClass;
+    int lv_defenderWepClass;
+
+    // Variable Initialization
+
+    // Implementation
+    lv_attackerWepClass = gf_GetWeaponClass(lp_unit1);
+    lv_defenderWepClass = gf_GetWeaponClass(lp_unit2);
+    if (((lv_attackerWepClass == gv_swordClass) && (lv_defenderWepClass == gv_axeClass))) {
+        return gv_triangleBonus;
+    }
+    else {
+        if (((lv_attackerWepClass == gv_swordClass) && (lv_defenderWepClass == gv_lanceClass))) {
+            return gv_trianglePenalty;
+        }
+        else {
+            if (((lv_attackerWepClass == gv_lanceClass) && (lv_defenderWepClass == gv_swordClass))) {
+                return gv_triangleBonus;
+            }
+            else {
+                if (((lv_attackerWepClass == gv_lanceClass) && (lv_defenderWepClass == gv_axeClass))) {
+                    return gv_trianglePenalty;
+                }
+                else {
+                    if (((lv_attackerWepClass == gv_axeClass) && (lv_defenderWepClass == gv_swordClass))) {
+                        return gv_trianglePenalty;
+                    }
+                    else {
+                        if (((lv_attackerWepClass == gv_axeClass) && (lv_defenderWepClass == gv_lanceClass))) {
+                            return gv_triangleBonus;
+                        }
+                        else {
+                            if (((lv_attackerWepClass == gv_animaClass) && (lv_defenderWepClass == gv_lightClass))) {
+                                return gv_triangleBonus;
+                            }
+                            else {
+                                if (((lv_attackerWepClass == gv_animaClass) && (lv_defenderWepClass == gv_darkClass))) {
+                                    return gv_trianglePenalty;
+                                }
+                                else {
+                                    if (((lv_attackerWepClass == gv_lightClass) && (lv_defenderWepClass == gv_animaClass))) {
+                                        return gv_trianglePenalty;
+                                    }
+                                    else {
+                                        if (((lv_attackerWepClass == gv_lightClass) && (lv_defenderWepClass == gv_darkClass))) {
+                                            return gv_triangleBonus;
+                                        }
+                                        else {
+                                            if (((lv_attackerWepClass == gv_darkClass) && (lv_defenderWepClass == gv_animaClass))) {
+                                                return gv_triangleBonus;
+                                            }
+                                            else {
+                                                if (((lv_attackerWepClass == gv_darkClass) && (lv_defenderWepClass == gv_lightClass))) {
+                                                    return gv_trianglePenalty;
+                                                }
+                                                else {
+                                                    return gv_triangleNeutral;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+int gf_CalcUnitHitRate (unit lp_attacker, unit lp_defender) {
+    // Variable Declarations
+    int lv_unitHitRate;
+    int lv_weaponHitRate;
+
+    // Variable Initialization
+
+    // Implementation
+    lv_unitHitRate = (UnitBehaviorCount(lp_attacker, "Skill") - UnitBehaviorCount(lp_defender, "Evasion"));
+    lv_unitHitRate = (lv_unitHitRate * gv_hitRateperSkill);
+    lv_weaponHitRate = gf_GetWeaponHitRate(lp_attacker);
+    lv_unitHitRate = (lv_unitHitRate + lv_weaponHitRate);
+    return lv_unitHitRate;
+}
+
+int gf_GetWeaponHitRate (unit lp_unit) {
+    // Implementation
+    if (((UnitHasBehavior(lp_unit, "SlimSword") == true))) {
+        return 100;
+    }
+    else {
+        if (((UnitHasBehavior(lp_unit, "Lightning") == true))) {
+            return 95;
+        }
+        else {
+            if (((UnitHasBehavior(lp_unit, "IronSword") == true) || (UnitHasBehavior(lp_unit, "Fire") == true) || (UnitHasBehavior(lp_unit, "Shine") == true))) {
+                return 90;
+            }
+            else {
+                if (((UnitHasBehavior(lp_unit, "SlimLance") == true) || (UnitHasBehavior(lp_unit, "Zanbato") == true) || (UnitHasBehavior(lp_unit, "ShortBow") == true) || (UnitHasBehavior(lp_unit, "IronBow") == true) || (UnitHasBehavior(lp_unit, "Elfire") == true) || (UnitHasBehavior(lp_unit, "Divine") == true) || (UnitHasBehavior(lp_unit, "Aura") == true))) {
+                    return 85;
+                }
+                else {
+                    if (((UnitHasBehavior(lp_unit, "IronLance") == true) || (UnitHasBehavior(lp_unit, "ArmorSlayer") == true) || (UnitHasBehavior(lp_unit, "SilverSword") == true) || (UnitHasBehavior(lp_unit, "Flux") == true) || (UnitHasBehavior(lp_unit, "Thunder") == true) || (UnitHasBehavior(lp_unit, "Fimbulvetr") == true))) {
+                        return 80;
+                    }
+                    else {
+                        if (((UnitHasBehavior(lp_unit, "IronAxe") == true) || (UnitHasBehavior(lp_unit, "SteelSword") == true) || (UnitHasBehavior(lp_unit, "KillingEdge") == true) || (UnitHasBehavior(lp_unit, "WyrmSlayer") == true) || (UnitHasBehavior(lp_unit, "BraveSword") == true) || (UnitHasBehavior(lp_unit, "LightBrand") == true) || (UnitHasBehavior(lp_unit, "SilverLance") == true) || (UnitHasBehavior(lp_unit, "SilverBow") == true) || (UnitHasBehavior(lp_unit, "Purge") == true))) {
+                            return 75;
+                        }
+                        else {
+                            if (((UnitHasBehavior(lp_unit, "IronBlade") == true) || (UnitHasBehavior(lp_unit, "SteelLance") == true) || (UnitHasBehavior(lp_unit, "HorseSlayer") == true) || (UnitHasBehavior(lp_unit, "HeavySpear") == true) || (UnitHasBehavior(lp_unit, "KillerLance") == true) || (UnitHasBehavior(lp_unit, "DragonSpear") == true) || (UnitHasBehavior(lp_unit, "BraveLance") == true) || (UnitHasBehavior(lp_unit, "WindSword") == true) || (UnitHasBehavior(lp_unit, "Spear") == true) || (UnitHasBehavior(lp_unit, "SilverAxe") == true) || (UnitHasBehavior(lp_unit, "SteelBow") == true) || (UnitHasBehavior(lp_unit, "KillerBow") == true) || (UnitHasBehavior(lp_unit, "Nosferatu") == true) || (UnitHasBehavior(lp_unit, "Fenrir") == true))) {
+                                return 70;
+                            }
+                            else {
+                                if (((UnitHasBehavior(lp_unit, "Javelin") == true) || (UnitHasBehavior(lp_unit, "SteelAxe") == true) || (UnitHasBehavior(lp_unit, "SteelBlade") == true) || (UnitHasBehavior(lp_unit, "KillerAxe") == true) || (UnitHasBehavior(lp_unit, "BraveAxe") == true) || (UnitHasBehavior(lp_unit, "RuneSword") == true) || (UnitHasBehavior(lp_unit, "Tomahawk") == true) || (UnitHasBehavior(lp_unit, "SilverBlade") == true) || (UnitHasBehavior(lp_unit, "LongBow") == true) || (UnitHasBehavior(lp_unit, "BraveBow") == true))) {
+                                    return 65;
+                                }
+                                else {
+                                    if (((UnitHasBehavior(lp_unit, "HandAxe") == true) || (UnitHasBehavior(lp_unit, "Halberd") == true) || (UnitHasBehavior(lp_unit, "DragonAxe") == true) || (UnitHasBehavior(lp_unit, "BattleAxe") == true) || (UnitHasBehavior(lp_unit, "Bolting") == true))) {
+                                        return 60;
+                                    }
+                                    else {
+                                        if (((UnitHasBehavior(lp_unit, "Hammer") == true))) {
+                                            return 55;
+                                        }
+                                        else {
+                                            if (((UnitHasBehavior(lp_unit, "Luna") == true))) {
+                                                return 50;
+                                            }
+                                            else {
+                                                if (((UnitHasBehavior(lp_unit, "Eclipse") == true))) {
+                                                    return 30;
+                                                }
+                                                else {
+                                                    return 0;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+int gf_GetUnitCritRate (unit lp_unit) {
+    // Variable Declarations
+    int lv_critRate;
+
+    // Variable Initialization
+    lv_critRate = 5;
+
+    // Implementation
+    if (((UnitGetType(lp_unit) == "Myrmidon"))) {
+        lv_critRate = (lv_critRate + 10);
+    }
+    else {
+        if (((UnitGetType(lp_unit) == "Swordmaster") || (UnitGetType(lp_unit) == "Berserker"))) {
+            lv_critRate = (lv_critRate + 20);
+        }
+        else {
+        }
+    }
+    if (((UnitHasBehavior(lp_unit, "KillerAxe") == true) || (UnitHasBehavior(lp_unit, "KillerBow") == true) || (UnitHasBehavior(lp_unit, "KillerLance") == true) || (UnitHasBehavior(lp_unit, "KillingEdge") == true) || (UnitHasBehavior(lp_unit, "Aura") == true))) {
+        lv_critRate = (lv_critRate + 15);
+    }
+    else {
+        if (((UnitHasBehavior(lp_unit, "Luna") == true) || (UnitHasBehavior(lp_unit, "Divine") == true))) {
+            lv_critRate = (lv_critRate + 10);
+        }
+        else {
+            if (((UnitHasBehavior(lp_unit, "Shine") == true))) {
+                lv_critRate = (lv_critRate + 8);
+            }
+            else {
+                if (((UnitHasBehavior(lp_unit, "SlimLance") == true) || (UnitHasBehavior(lp_unit, "SlimSword") == true) || (UnitHasBehavior(lp_unit, "ShortBow") == true) || (UnitHasBehavior(lp_unit, "Lightning") == true) || (UnitHasBehavior(lp_unit, "Thunder") == true) || (UnitHasBehavior(lp_unit, "Purge") == true))) {
+                    lv_critRate = (lv_critRate + 5);
+                }
+                else {
+                    if (((UnitHasBehavior(lp_unit, "Eclipse") == true))) {
+                        lv_critRate = (lv_critRate - 100);
+                    }
+                    else {
+                    }
+                }
+            }
+        }
+    }
+    return lv_critRate;
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Melee Initialization
+//--------------------------------------------------------------------------------------------------
+bool gt_MeleeInitialization_Func (bool testConds, bool runActions) {
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    DialogCreate(200, 50, c_anchorRight, 0, 0, true);
+    libNtve_gf_CreateDialogItemButton(DialogLastCreated(), 200, 50, c_anchorTopLeft, 0, 0, StringExternal("Param/Value/1AB74A1B"), StringExternal("Param/Value/8EBCD21B"), "");
+    gv_endTurnButton = DialogControlLastCreated();
+    DialogSetVisible(DialogLastCreated(), PlayerGroupSingle(1), true);
+    TimerStart(gv_turnTimerRed, 30.0, false, c_timeGame);
+    gv_turnTimerRed = TimerLastStarted();
+    TimerStart(gv_turnTimerBlue, 30.0, false, c_timeGame);
+    gv_turnTimerBlue = TimerLastStarted();
+    TimerWindowCreate(gv_turnTimerRed, StringExternal("Param/Value/91DB3ACC"), true, false);
+    TimerWindowSetPosition(TimerWindowLastCreated(), 1600, 50);
+    TimerWindowShow(TimerWindowLastCreated(), PlayerGroupSingle(1), true);
+    TimerWindowCreate(gv_turnTimerBlue, StringExternal("Param/Value/42912135"), true, false);
+    TimerWindowSetPosition(TimerWindowLastCreated(), 1600, 50);
+    TimerWindowShow(TimerWindowLastCreated(), PlayerGroupSingle(2), true);
+    UnitSetPropertyFixed(UnitFromId(2), c_unitPropEnergyPercent, 100.0);
+    UnitSetPropertyFixed(UnitFromId(5), c_unitPropEnergyPercent, 100.0);
+    UnitSetPropertyFixed(UnitFromId(6), c_unitPropEnergyPercent, 100.0);
+    UnitSetPropertyFixed(UnitFromId(4), c_unitPropEnergyPercent, 100.0);
+    UnitSetPropertyFixed(UnitFromId(21), c_unitPropEnergyPercent, 100.0);
+    UnitSetPropertyFixed(UnitFromId(58), c_unitPropEnergyPercent, 100.0);
+    Wait(0.1, c_timeGame);
+    UnitInventoryCreate(UnitFromId(2), "IronSword");
+    UnitInventoryCreate(UnitFromId(4), "IronLance");
+    UnitInventoryCreate(UnitFromId(5), "FluxTome");
+    UnitInventoryCreate(UnitFromId(6), "SteelSword");
+    UnitInventoryCreate(UnitFromId(21), "BoltingTome");
+    UnitInventoryCreate(UnitFromId(58), "IronAxe");
+    PlayerModifyPropertyInt(1, c_playerPropMinerals, c_playerPropOperSetTo, 1500);
+    PlayerSetAlliance(1, c_allianceIdPushable, 1, false);
+    PlayerSetAlliance(2, c_allianceIdPushable, 2, false);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_MeleeInitialization_Init () {
+    gt_MeleeInitialization = TriggerCreate("gt_MeleeInitialization_Func");
+    TriggerAddEventMapInit(gt_MeleeInitialization);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: End Turn Red
+//--------------------------------------------------------------------------------------------------
+bool gt_EndTurnRed_Func (bool testConds, bool runActions) {
+    // Conditions
+    if (testConds) {
+        if (!((gv_redsTurn == true))) {
+            return false;
+        }
+    }
+
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    UIDisplayMessage(PlayerGroupAll(), c_messageAreaObjective, (StringExternal("Param/Value/AC919382") + (StringExternal("Param/Value/ACDE28DB") + (PlayerName(2) + StringExternal("Param/Value/5EA3DC99")))));
+    DialogControlSetVisible(gv_endTurnButton, PlayerGroupSingle(1), false);
+    TimerRestart(gv_turnTimerBlue);
+    Wait(0.1, c_timeGame);
+    gv_redsTurn = false;
+    TimerRestart(gv_turnTimerRed);
+    UnitGroupLoopBegin(UnitGroup(null, 1, RegionEntireMap(), UnitFilter(0, 0, (1 << c_targetFilterMissile), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropEnergy, 0.0);
+    }
+    UnitGroupLoopEnd();
+    UnitGroupLoopBegin(UnitGroup(null, 2, RegionEntireMap(), UnitFilter(0, 0, (1 << c_targetFilterMissile), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropEnergyPercent, 100.0);
+    }
+    UnitGroupLoopEnd();
+    DialogControlSetVisible(gv_endTurnButton, PlayerGroupSingle(2), true);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_EndTurnRed_Init () {
+    gt_EndTurnRed = TriggerCreate("gt_EndTurnRed_Func");
+    TriggerAddEventTimer(gt_EndTurnRed, gv_turnTimerRed);
+    TriggerAddEventDialogControl(gt_EndTurnRed, 1, c_invalidDialogControlId, c_triggerControlEventTypeClick);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: End Turn Blue
+//--------------------------------------------------------------------------------------------------
+bool gt_EndTurnBlue_Func (bool testConds, bool runActions) {
+    // Conditions
+    if (testConds) {
+        if (!((gv_redsTurn == false))) {
+            return false;
+        }
+    }
+
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    UIDisplayMessage(PlayerGroupAll(), c_messageAreaObjective, (StringExternal("Param/Value/5DDFC068") + (StringExternal("Param/Value/993E54E2") + (PlayerName(1) + StringExternal("Param/Value/997D6193")))));
+    DialogControlSetVisible(gv_endTurnButton, PlayerGroupSingle(2), false);
+    TimerRestart(gv_turnTimerRed);
+    Wait(0.1, c_timeGame);
+    gv_redsTurn = true;
+    TimerRestart(gv_turnTimerBlue);
+    UnitGroupLoopBegin(UnitGroup(null, 2, RegionEntireMap(), UnitFilter(0, 0, (1 << c_targetFilterMissile), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropEnergy, 0.0);
+    }
+    UnitGroupLoopEnd();
+    UnitGroupLoopBegin(UnitGroup(null, 1, RegionEntireMap(), UnitFilter(0, 0, (1 << c_targetFilterMissile), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropEnergyPercent, 100.0);
+    }
+    UnitGroupLoopEnd();
+    DialogControlSetVisible(gv_endTurnButton, PlayerGroupSingle(1), true);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_EndTurnBlue_Init () {
+    gt_EndTurnBlue = TriggerCreate("gt_EndTurnBlue_Func");
+    TriggerAddEventTimer(gt_EndTurnBlue, gv_turnTimerBlue);
+    TriggerAddEventDialogControl(gt_EndTurnBlue, 2, c_invalidDialogControlId, c_triggerControlEventTypeClick);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Starter Weapons
+//--------------------------------------------------------------------------------------------------
+bool gt_StarterWeapons_Func (bool testConds, bool runActions) {
+    // Conditions
+    if (testConds) {
+        if (!((EventUnitCreatedAbil() == "KeepTrain"))) {
+            return false;
+        }
+    }
+
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    UIDisplayMessage(PlayerGroupAll(), c_messageAreaDebug, StringExternal("Param/Value/6CC2B8FF"));
+    UnitSetPropertyFixed(EventUnitCreatedUnit(), c_unitPropEnergyPercent, 100.0);
+    Wait(0.1, c_timeGame);
+    if (((UnitGetType(EventUnitCreatedUnit()) == "Mercenary") || (UnitGetType(EventUnitCreatedUnit()) == "Myrmidon") || (UnitGetType(EventUnitCreatedUnit()) == "Thief"))) {
+        UnitInventoryCreate(EventUnitCreatedUnit(), "IronSword");
+    }
+    else {
+        if (((UnitGetType(EventUnitCreatedUnit()) == "Knight") || (UnitGetType(EventUnitCreatedUnit()) == "PegasusKnight") || (UnitGetType(EventUnitCreatedUnit()) == "WyvernRider"))) {
+            UnitInventoryCreate(EventUnitCreatedUnit(), "IronLance");
+        }
+        else {
+            if (((UnitGetType(EventUnitCreatedUnit()) == "Fighter") || (UnitGetType(EventUnitCreatedUnit()) == "Pirate"))) {
+                UnitInventoryCreate(EventUnitCreatedUnit(), "IronAxe");
+            }
+            else {
+                if (((UnitGetType(EventUnitCreatedUnit()) == "Cavalier"))) {
+                    UnitInventoryCreate(EventUnitCreatedUnit(), "IronLance");
+                    UnitInventoryCreate(EventUnitCreatedUnit(), "IronSword");
+                }
+                else {
+                    if (((UnitGetType(EventUnitCreatedUnit()) == "Archer"))) {
+                        UnitInventoryCreate(EventUnitCreatedUnit(), "IronBow");
+                    }
+                    else {
+                        if (((UnitGetType(EventUnitCreatedUnit()) == "Mage"))) {
+                            UnitInventoryCreate(EventUnitCreatedUnit(), "FireTome");
+                        }
+                        else {
+                            if (((UnitGetType(EventUnitCreatedUnit()) == "Monk"))) {
+                                UnitInventoryCreate(EventUnitCreatedUnit(), "LightningTome");
+                            }
+                            else {
+                                if (((UnitGetType(EventUnitCreatedUnit()) == "Shaman"))) {
+                                    UnitInventoryCreate(EventUnitCreatedUnit(), "FluxTome");
+                                }
+                                else {
+                                    if (((UnitGetType(EventUnitCreatedUnit()) == "Cleric") || (UnitGetType(EventUnitCreatedUnit()) == "Priest") || (UnitGetType(EventUnitCreatedUnit()) == "Troubadour"))) {
+                                        UnitInventoryCreate(EventUnitCreatedUnit(), "HealStaff");
+                                    }
+                                    else {
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Wait(0.1, c_timeGame);
+    UnitSetPropertyFixed(EventUnitCreatedUnit(), c_unitPropEnergy, 0.0);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_StarterWeapons_Init () {
+    gt_StarterWeapons = TriggerCreate("gt_StarterWeapons_Func");
+    TriggerAddEventUnitCreated(gt_StarterWeapons, null, null, null);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Energy Refresh
+//--------------------------------------------------------------------------------------------------
+bool gt_EnergyRefresh_Func (bool testConds, bool runActions) {
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    UnitGroupLoopBegin(UnitGroup(null, c_playerAny, RegionEntireMap(), UnitFilter(0, 0, (1 << c_targetFilterMissile), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropEnergyPercent, 100.0);
+    }
+    UnitGroupLoopEnd();
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_EnergyRefresh_Init () {
+    gt_EnergyRefresh = TriggerCreate("gt_EnergyRefresh_Func");
+    TriggerAddEventChatMessage(gt_EnergyRefresh, c_playerAny, "-energy", true);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Battle Prep
+//--------------------------------------------------------------------------------------------------
+bool gt_BattlePrep_Func (bool testConds, bool runActions) {
+    // Variable Declarations
+    unit lv_attacker;
+    point lv_attackerLoc;
+    int lv_attackerSpeed;
+    int lv_attackerEvasion;
+    int lv_attackerSkill;
+    int lv_attackerResistance;
+    int lv_attackerWeaponClass;
+    int lv_attackerWeaponStyle;
+    unit lv_defender;
+    point lv_defenderLoc;
+    int lv_defenderSpeed;
+    int lv_defenderEvasion;
+    int lv_defenderSkill;
+    int lv_defenderResistance;
+    int lv_defenderWeaponClass;
+    int lv_defenderWeaponStyle;
+    int lv_battleStage;
+    bool lv_defenderCanCounter;
+    int lv_battleSequence;
+
+    // Variable Initialization
+
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    TimerPause(gv_turnTimerRed, true);
+    TimerPause(gv_turnTimerBlue, true);
+    lv_attacker = EventUnit();
+    lv_defender = EventUnitTargetUnit();
+    UnitBehaviorAdd(lv_attacker, "MoveToggle", lv_attacker, 1);
+    UnitBehaviorAdd(lv_defender, "MoveToggle", lv_defender, 1);
+    lv_attackerLoc = UnitGetPosition(EventUnit());
+    lv_defenderLoc = UnitGetPosition(EventUnitTargetUnit());
+    gf_PauseNonCombatUnits(lv_attacker, lv_defender);
+    lv_battleStage = gf_GetStageType(lv_attacker, lv_defender);
+    Wait(2.0, c_timeGame);
+    gf_MoveUnitstoStage(lv_battleStage, lv_attacker, lv_defender);
+    UnitBehaviorRemove(lv_attacker, "MoveToggle", 1);
+    UnitBehaviorRemove(lv_defender, "MoveToggle", 1);
+    lv_attackerWeaponStyle = gf_GetWeaponStyle(lv_attacker);
+    lv_defenderWeaponStyle = gf_GetWeaponStyle(lv_defender);
+    lv_defenderCanCounter = gf_CanDefenderCounter(lv_battleStage, lv_defenderWeaponStyle);
+    lv_attackerSpeed = UnitBehaviorCount(lv_attacker, "Speed");
+    lv_defenderSpeed = UnitBehaviorCount(lv_defender, "Speed");
+    UnitSetPropertyFixed(lv_attacker, c_unitPropEnergyPercent, 100.0);
+    UnitSetPropertyFixed(lv_defender, c_unitPropEnergyPercent, 100.0);
+    TriggerEnable(gt_EnergyWorkaround, true);
+    lv_battleSequence = gf_GetBattleSequence(lv_defenderCanCounter, lv_attackerSpeed, lv_defenderSpeed);
+    gf_BeginBattle(lv_battleSequence, lv_attacker, lv_defender);
+    TriggerEnable(gt_EnergyWorkaround, false);
+    if ((UnitIsAlive(lv_attacker) == true)) {
+        UnitCreateEffectUnit(lv_attacker, "Add20XP", lv_attacker);
+        UnitSetPosition(lv_attacker, lv_attackerLoc, false);
+        UnitSetPropertyFixed(lv_attacker, c_unitPropEnergy, 0.0);
+        UnitBehaviorRemove(lv_attacker, "MoveToggle", 1);
+    }
+    else {
+    }
+    if ((UnitIsAlive(lv_defender) == true)) {
+        UnitCreateEffectUnit(lv_defender, "Add20XP", lv_defender);
+        UnitSetPosition(lv_defender, lv_defenderLoc, false);
+        UnitSetPropertyFixed(lv_defender, c_unitPropEnergy, 0.0);
+        UnitBehaviorRemove(lv_defender, "MoveToggle", 1);
+    }
+    else {
+    }
+    gf_UnpauseAllunits();
+    TimerPause(gv_turnTimerRed, false);
+    TimerPause(gv_turnTimerBlue, false);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_BattlePrep_Init () {
+    gt_BattlePrep = TriggerCreate("gt_BattlePrep_Func");
+    TriggerAddEventUnitAbility(gt_BattlePrep, null, AbilityCommand("Battle", 0), c_abilEffectStageFinish, false);
+    TriggerAddEventUnitAbility(gt_BattlePrep, null, AbilityCommand("Battle2", 0), c_abilEffectStageFinish, false);
+    TriggerAddEventUnitAbility(gt_BattlePrep, null, AbilityCommand("Battle3", 0), c_abilEffectStageFinish, false);
+    TriggerAddEventUnitAbility(gt_BattlePrep, null, AbilityCommand("BattleLongbow", 0), c_abilEffectStageFinish, false);
+    TriggerAddEventUnitAbility(gt_BattlePrep, null, AbilityCommand("BattleSuperLongSpell", 0), c_abilEffectStageFinish, false);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Replace Items on Promotion
+//--------------------------------------------------------------------------------------------------
+bool gt_ReplaceItems_Func (bool testConds, bool runActions) {
+    int auto111804E8_ae;
+    int auto111804E8_ai;
+
+    // Variable Declarations
+    region lv_unitRegion;
+    int lv_i;
+    fixed lv_healthPercent;
+
+    // Variable Initialization
+
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    UIDisplayMessage(PlayerGroupAll(), c_messageAreaDebug, StringExternal("Param/Value/9D03EBBF"));
+    lv_unitRegion = RegionCircle(UnitGetPosition(EventUnit()), 0.5);
+    lv_healthPercent = UnitGetPropertyFixed(EventUnit(), c_unitPropLifePercent, c_unitPropCurrent);
+    UnitGroupLoopBegin(UnitGroup(null, c_playerAny, lv_unitRegion, UnitFilter((1 << c_targetFilterItem), 0, 0, 0), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitCreate(1, UnitGetType(UnitGroupLoopCurrent()), 0, 0, UnitGetPosition(EventUnit()), 270.0);
+        UnitRemove(UnitGroupLoopCurrent());
+    }
+    UnitGroupLoopEnd();
+    Wait(0.4, c_timeGame);
+    UnitGroupLoopBegin(UnitGroup(null, c_playerAny, lv_unitRegion, UnitFilter(0, 0, (1 << c_targetFilterMissile) | (1 << c_targetFilterItem), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropEnergy, 1.0);
+    }
+    UnitGroupLoopEnd();
+    Wait(0.1, c_timeGame);
+    auto111804E8_ae = 10;
+    auto111804E8_ai = 1;
+    lv_i = 0;
+    for ( ; ( (auto111804E8_ai >= 0 && lv_i <= auto111804E8_ae) || (auto111804E8_ai <= 0 && lv_i >= auto111804E8_ae) ) ; lv_i += auto111804E8_ai ) {
+        UnitGroupLoopBegin(UnitGroup(null, c_playerAny, lv_unitRegion, UnitFilter(0, 0, (1 << c_targetFilterMissile) | (1 << c_targetFilterItem), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+        for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+            UnitIssueOrder(UnitGroupLoopCurrent(), OrderTargetingUnit(null, UnitGroupRandomUnit(UnitGroup(null, c_playerAny, lv_unitRegion, UnitFilter((1 << c_targetFilterItem), 0, 0, 0), 0), c_unitCountAll)), c_orderQueueReplace);
+            Wait(0.05, c_timeGame);
+        }
+        UnitGroupLoopEnd();
+    }
+    Wait(0.1, c_timeGame);
+    UnitGroupLoopBegin(UnitGroup(null, c_playerAny, lv_unitRegion, UnitFilter(0, 0, (1 << c_targetFilterMissile) | (1 << c_targetFilterItem), (1 << (c_targetFilterDead - 32)) | (1 << (c_targetFilterHidden - 32))), 0));
+    for ( ; !UnitGroupLoopDone() ; UnitGroupLoopStep() ) {
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropEnergy, 0.0);
+        UnitSetPropertyFixed(UnitGroupLoopCurrent(), c_unitPropLifePercent, lv_healthPercent);
+    }
+    UnitGroupLoopEnd();
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_ReplaceItems_Init () {
+    gt_ReplaceItems = TriggerCreate("gt_ReplaceItems_Func");
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMyrmidonAssassin", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphThiefAssassin", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphPirateBerserker", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphJourneymanFighter", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphJourneymanPirate", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphRecruitCavalier", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphRecruitKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphClericBishop", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMonkBishop", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphPriestBishop", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphShamanDruid", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphPegKnightFalcoKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphKnightGeneral", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphCavalierGreatKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphKnightGreatKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphFighterHero", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMercenaryHero", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMageMageKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphTroubadourMageKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphCavalierPaladin", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphArcherRanger", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMercenaryRanger", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphThiefRogue", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMageSage", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMonkSage", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphPriestSage", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphArcherSniper", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphShamanSummoner", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphMyrmidonSwordmaster", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphClericValkyrie", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphTroubadourValkyrie", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphFighterWarrior", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphPirateWarrior", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphPegKnightWyvernKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphWyvernRiderWyvernKnight", 0), c_unitAbilStageExecute, false);
+    TriggerAddEventUnitAbility(gt_ReplaceItems, null, AbilityCommand("MorphWyvernRiderWyvernLord", 0), c_unitAbilStageExecute, false);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Energy Workaround
+//--------------------------------------------------------------------------------------------------
+bool gt_EnergyWorkaround_Func (bool testConds, bool runActions) {
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    UnitSetPropertyFixed(EventUnit(), c_unitPropEnergyPercent, 100.0);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_EnergyWorkaround_Init () {
+    gt_EnergyWorkaround = TriggerCreate("gt_EnergyWorkaround_Func");
+    TriggerEnable(gt_EnergyWorkaround, false);
+    TriggerAddEventUnitProperty(gt_EnergyWorkaround, null, c_unitPropEnergy);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Attacker Hits
+//--------------------------------------------------------------------------------------------------
+bool gt_AttackerHits_Func (bool testConds, bool runActions) {
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    if (((TriggerIsEnabled(gt_AttackerMisses) == false) && (UnitHasBehavior(EventUnitTarget(), "Eclipse") == true))) {
+        UnitSetPropertyFixed(EventUnit(), c_unitPropLife, (UnitGetPropertyFixed(EventUnit(), c_unitPropLife, c_unitPropCurrent) / 2.0));
+    }
+    else {
+    }
+    Wait(0.5, c_timeGame);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_AttackerHits_Init () {
+    gt_AttackerHits = TriggerCreate("gt_AttackerHits_Func");
+    TriggerEnable(gt_AttackerHits, false);
+    TriggerAddEventUnitAttacked(gt_AttackerHits, null);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Attacker Misses
+//--------------------------------------------------------------------------------------------------
+bool gt_AttackerMisses_Func (bool testConds, bool runActions) {
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    TextTagCreate(StringExternal("Param/Value/E4607A6C"), 24, UnitGetPosition(EventUnit()), 1.0, true, false, PlayerGroupAll());
+    TextTagShow(TextTagLastCreated(), PlayerGroupAll(), true);
+    TextTagSetColor(TextTagLastCreated(), c_textTagColorText, Color(100.00, 100.00, 100.00));
+    TextTagSetVelocity(TextTagLastCreated(), 1.0, 90.0);
+    TextTagSetTime(TextTagLastCreated(), c_textTagTimeDuration, 5.0);
+    TriggerEnable(gt_AttackerMisses, false);
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_AttackerMisses_Init () {
+    gt_AttackerMisses = TriggerCreate("gt_AttackerMisses_Func");
+    TriggerEnable(gt_AttackerMisses, false);
+    TriggerAddEventUnitDamaged(gt_AttackerMisses, null, c_unitDamageTypeAny, c_unitDamageEither, null);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger: Attacker Crits
+//--------------------------------------------------------------------------------------------------
+bool gt_AttackerCrits_Func (bool testConds, bool runActions) {
+    // Conditions
+    if (testConds) {
+        if (!((EventUnitDamageEffect() != "CriticalDamage"))) {
+            return false;
+        }
+    }
+
+    // Actions
+    if (!runActions) {
+        return true;
+    }
+
+    if ((UnitGetType(EventUnitDamageSourceUnit()) == "Assassin")) {
+        UnitDamage(EventUnitDamageSourceUnit(), "CriticalDamage", EventUnit(), EventUnitDamageAmount());
+        UnitDamage(EventUnitDamageSourceUnit(), "CriticalDamage", EventUnit(), EventUnitDamageAmount());
+        UnitDamage(EventUnitDamageSourceUnit(), "CriticalDamage", EventUnit(), EventUnitDamageAmount());
+        UnitDamage(EventUnitDamageSourceUnit(), "CriticalDamage", EventUnit(), EventUnitDamageAmount());
+        libNtve_gf_CreateExplosionAtPoint(1, 0, UnitGetPosition(EventUnit()));
+        TextTagCreate(FixedToText((EventUnitDamageAmount() * 5.0), 0), 24, UnitGetPosition(EventUnit()), 1.0, true, false, PlayerGroupAll());
+        TextTagShow(TextTagLastCreated(), PlayerGroupAll(), true);
+        TextTagSetColor(TextTagLastCreated(), c_textTagColorText, Color(100.00, 100.00, 100.00));
+        TextTagSetVelocity(TextTagLastCreated(), 1.0, 90.0);
+        TextTagSetTime(TextTagLastCreated(), c_textTagTimeDuration, 5.0);
+        TriggerEnable(gt_AttackerCrits, false);
+    }
+    else {
+        UnitDamage(EventUnitDamageSourceUnit(), "CriticalDamage", EventUnit(), EventUnitDamageAmount());
+        libNtve_gf_CreateExplosionAtPoint(1, 0, UnitGetPosition(EventUnit()));
+        TextTagCreate(FixedToText((EventUnitDamageAmount() * 2.0), 0), 24, UnitGetPosition(EventUnit()), 1.0, true, false, PlayerGroupAll());
+        TextTagShow(TextTagLastCreated(), PlayerGroupAll(), true);
+        TextTagSetColor(TextTagLastCreated(), c_textTagColorText, Color(100.00, 100.00, 100.00));
+        TextTagSetVelocity(TextTagLastCreated(), 1.0, 90.0);
+        TextTagSetTime(TextTagLastCreated(), c_textTagTimeDuration, 5.0);
+        TriggerEnable(gt_AttackerCrits, false);
+    }
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+void gt_AttackerCrits_Init () {
+    gt_AttackerCrits = TriggerCreate("gt_AttackerCrits_Func");
+    TriggerEnable(gt_AttackerCrits, false);
+    TriggerAddEventUnitDamaged(gt_AttackerCrits, null, c_unitDamageTypeAny, c_unitDamageEither, null);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Trigger Initialization
+//--------------------------------------------------------------------------------------------------
+void InitTriggers () {
+    gt_MeleeInitialization_Init();
+    gt_EndTurnRed_Init();
+    gt_EndTurnBlue_Init();
+    gt_StarterWeapons_Init();
+    gt_EnergyRefresh_Init();
+    gt_BattlePrep_Init();
+    gt_ReplaceItems_Init();
+    gt_EnergyWorkaround_Init();
+    gt_AttackerHits_Init();
+    gt_AttackerMisses_Init();
+    gt_AttackerCrits_Init();
+}
+
+//--------------------------------------------------------------------------------------------------
+// Map Initialization
+//--------------------------------------------------------------------------------------------------
+void InitMap () {
+    InitLibs();
+    InitGlobals();
+    InitTriggers();
+}
